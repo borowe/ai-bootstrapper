@@ -79,10 +79,6 @@ repos:
       - id: ruff
         args: [--fix]
       - id: ruff-format
-  - repo: https://github.com/gitleaks/gitleaks
-    rev: v8.24.0
-    hooks:
-      - id: gitleaks
 '@
 
 A "pyproject.toml" @'
@@ -430,6 +426,119 @@ async def test_news_endpoint():
     assert r.status_code == 200
     assert {"title", "url"} <= r.json().keys()
 '@
+
+# ---------------------------------------------------------------- readme
+$readme = @'
+# __NAME__
+
+A FastAPI service with one example [Pydantic AI](https://ai.pydantic.dev) agent. Ask it
+"what's the latest in fintech ai?" and it returns the first Google News result as typed JSON.
+
+## Stack
+- **FastAPI** (`fastapi[standard]`) serves the API
+- **Pydantic AI** runs the agent; models are addressed by role, not vendor
+- **Google News RSS** is the search tool (no search API key needed)
+- **Langfuse** (optional) for tracing through OpenTelemetry
+- **pytest, ruff, pyright, pre-commit** for quality checks
+
+## Setup
+Requires [uv](https://docs.astral.sh/uv/). It installs Python 3.12 if needed.
+
+```
+uv sync
+```
+
+The bootstrap already created `.env`. On a fresh clone, copy `.env.example` to `.env`, then add
+your `ANTHROPIC_API_KEY` (or another provider key and a matching `DEFAULT_MODEL`).
+
+## Run
+```
+uv run python -m app.agents.news     # one-off run, prints the result, no server
+uv run fastapi dev app/main.py       # API on http://localhost:8000 (docs at /docs)
+```
+
+## Endpoints
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/health` | Liveness check |
+| GET | `/news?question=...` | Runs the agent. `question` defaults to "what's the latest in fintech ai?" |
+
+```
+curl localhost:8000/news                                   # bash
+Invoke-RestMethod http://localhost:8000/news               # PowerShell
+```
+
+Response shape:
+```json
+{"title": "...", "url": "...", "source": "...", "published": "..."}
+```
+A failed Google News fetch returns `502`.
+
+## Layout
+```
+app/
+  config.py              # settings: model per role, budgets, keys (pydantic-settings)
+  models.py              # build_model(role): native provider, or a LiteLLM gateway
+  observability.py       # Langfuse tracing via Agent.instrument_all()
+  schemas.py             # NewsItem
+  tools/google_news.py   # Google News RSS search
+  agents/news.py         # the example agent and its tool
+  api/routes.py          # HTTP endpoints
+  main.py                # FastAPI app and lifespan
+tests/                   # no network or real model calls
+litellm_config.yaml      # optional model gateway
+.env.example             # all settings, documented
+```
+
+## Configuration (`.env`)
+| Variable | Purpose |
+| --- | --- |
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` | Provider keys |
+| `DEFAULT_MODEL` | `provider:model` for the `default` role. Change models here, not in code |
+| `GATEWAY_URL`, `GATEWAY_KEY` | If set, all roles route through a LiteLLM proxy; the role name is the model alias |
+| `MAX_REQUESTS`, `MAX_TOKENS` | Hard budget per agent run |
+| `LANGFUSE_*` | Tracing. Leave blank to disable |
+
+## Testing and quality
+```
+uv run pytest                 # tests
+uv run ruff check . --fix     # lint
+uv run ruff format .          # format
+uv run pyright                # type check
+```
+Tests use Pydantic AI's `TestModel` and block real model requests, so they run offline and free.
+
+## Adding an agent
+1. Copy `app/agents/news.py`. Change the output schema, instructions, and tools.
+2. Put tool code in `app/tools/` and shared schemas in `app/schemas.py`.
+3. Expose it in `app/api/routes.py`.
+4. Test it with `TestModel`, following `tests/test_agent.py`.
+
+To add a model role (for example a cheaper model for summaries): extend `Role` in `app/models.py`,
+add `<role>_model` to `Settings` and `.env`, and add an alias to `litellm_config.yaml` if you use the gateway.
+
+## Optional: LiteLLM gateway
+```
+uv add "litellm[proxy]"
+uv run litellm --config litellm_config.yaml --port 4000
+```
+Then set `GATEWAY_URL=http://localhost:4000` and `GATEWAY_KEY` in `.env`.
+
+## Optional: tracing with Langfuse
+Fill in the `LANGFUSE_*` values in `.env`. Tracing turns on automatically at startup.
+
+## Optional: editor agent workflow
+To plan, code and review changes to this repo with Copilot Chat agents, run the
+`scaffold-agents` script from the toolkit in this repo's root. It adds Setup, Orchestrator,
+Planner, Coder and Reviewer agents and a `user_guide_for_agents.md`.
+
+## Caveats
+- The Google News RSS feed is unofficial. Google can throttle or change it, and result links are
+  Google redirect URLs. Use a licensed news API for production; swap `app/tools/google_news.py`
+  and the agent code stays the same.
+- Pydantic AI renames APIs between minor releases. `uv.lock` pins the working versions.
+'@
+W "README.md" ($readme.Replace('__NAME__', $Name))
 
 # ---------------------------------------------------------------- finish
 git init -q

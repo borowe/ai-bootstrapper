@@ -1,3 +1,6 @@
+# Child dirs with their own git repo
+agentkit/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
